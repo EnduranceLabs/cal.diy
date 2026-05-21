@@ -57,6 +57,7 @@ import { parseBookingLimit } from "@calcom/lib/intervalLimits/isBookingLimits";
 import { parseDurationLimit } from "@calcom/lib/intervalLimits/isDurationLimits";
 import LimitManager, { LimitSources } from "@calcom/lib/intervalLimits/limitManager";
 import { isBookingWithinPeriod } from "@calcom/lib/intervalLimits/utils";
+import { parseRecurringDates } from "@calcom/lib/parse-dates";
 import {
   BookingDateInPastError,
   calculatePeriodLimits,
@@ -67,7 +68,12 @@ import logger from "@calcom/lib/logger";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { withReporting } from "@calcom/lib/sentryWrapper";
 import { PeriodType } from "@calcom/prisma/enums";
-import type { CalendarFetchMode, EventBusyDate, EventBusyDetails } from "@calcom/types/Calendar";
+import type {
+  CalendarFetchMode,
+  EventBusyDate,
+  EventBusyDetails,
+  RecurringEvent,
+} from "@calcom/types/Calendar";
 import type { CredentialForCalendarService } from "@calcom/types/Credential";
 import { TRPCError } from "@trpc/server";
 import type { Logger } from "tslog";
@@ -80,6 +86,11 @@ const DEFAULT_SLOTS_CACHE_TTL = 2000;
 
 type GetAvailabilityUserWithDelegationCredentials = Omit<NonNullable<GetAvailabilityUser>, "credentials"> & {
   credentials: CredentialForCalendarService[];
+};
+
+type AvailabilityDateRange = {
+  start: Dayjs;
+  end: Dayjs;
 };
 
 export type GetAvailableSlotsResponse = Awaited<
@@ -315,6 +326,49 @@ export class AvailableSlotsService {
     this._filterSlotsByRequestedDateRange.bind(this),
     "filterSlotsByRequestedDateRange"
   );
+
+  private getRecurringOccurrenceStarts({
+    slotStart,
+    recurringEvent,
+    recurringCount,
+    timeZone,
+  }: {
+    slotStart: Dayjs;
+    recurringEvent: RecurringEvent;
+    recurringCount: number;
+    timeZone: string;
+  }): Dayjs[] {
+    const [, recurringDates] = parseRecurringDates(
+      {
+        startDate: slotStart,
+        timeZone,
+        recurringEvent,
+        recurringCount,
+        withDefaultTimeFormat: true,
+      },
+      "en"
+    );
+
+    return recurringDates.map((date) => dayjs(date));
+  }
+
+  private isSlotWithinDateRanges({
+    slotStart,
+    eventLength,
+    dateRanges,
+  }: {
+    slotStart: Dayjs;
+    eventLength: number;
+    dateRanges: AvailabilityDateRange[];
+  }): boolean {
+    const slotEnd = slotStart.add(eventLength, "minute");
+
+    return dateRanges.some(
+      (range) =>
+        (slotStart.isAfter(range.start) || slotStart.isSame(range.start)) &&
+        (slotEnd.isBefore(range.end) || slotEnd.isSame(range.end))
+    );
+  }
 
   private _getAllDatesWithBookabilityStatus(availableDates: string[]) {
     const availableDatesSet = new Set(availableDates);
@@ -569,7 +623,10 @@ export class AvailableSlotsService {
 
             const selectedDuration = (duration || eventType.length) ?? 0;
 
-            const { title: durationTitle, source: durationSource } = LimitSources.eventDurationLimit({ limit, unit });
+            const { title: durationTitle, source: durationSource } = LimitSources.eventDurationLimit({
+              limit,
+              unit,
+            });
 
             if (selectedDuration > limit) {
               limitManager.addBusyTime({
@@ -987,6 +1044,7 @@ export class AvailableSlotsService {
       : { eligibleHosts: [] };
 
     const allHosts = [...eligibleQualifiedRRHosts, ...eligibleFixedHosts];
+    let hostsForAvailability = allHosts;
 
     // If all hosts are blocked, return empty slots
     if (allHosts.length === 0) {
@@ -1072,11 +1130,12 @@ export class AvailableSlotsService {
 
       if (diff > 0) {
         // if the first available slot is more than 2 weeks from now, round robin as normal
+        hostsForAvailability = [...eligibleFallbackRRHosts, ...eligibleFixedHosts];
         ({ allUsersAvailability, usersWithCredentials, currentSeats } =
           await this.calculateHostsAndAvailabilities({
             input,
             eventType,
-            hosts: [...eligibleFallbackRRHosts, ...eligibleFixedHosts],
+            hosts: hostsForAvailability,
             loggerWithEventDetails,
             startTime,
             endTime,
@@ -1163,6 +1222,54 @@ export class AvailableSlotsService {
       availableTimeSlots = timeSlots;
     }
 
+    const recurringEvent = eventType.recurringEvent;
+    const recurringTimeZone = input.timeZone ?? eventType.schedule?.timeZone ?? "UTC";
+    if (recurringEvent?.count && recurringEvent.count > 1 && availableTimeSlots.length > 0) {
+      const eventLength = input.duration || eventType.length;
+      const lastAvailableSlot = availableTimeSlots.reduce((latestSlot, slot) =>
+        slot.time.isAfter(latestSlot.time) ? slot : latestSlot
+      );
+      const recurringStartsForLastSlot = this.getRecurringOccurrenceStarts({
+        slotStart: lastAvailableSlot.time,
+        recurringEvent,
+        recurringCount: recurringEvent.count,
+        timeZone: recurringTimeZone,
+      });
+      const recurringEndTime = recurringStartsForLastSlot.at(-1)?.add(eventLength, "minute") ?? endTime;
+      const recurringAvailabilityData = await this.calculateHostsAndAvailabilities({
+        input,
+        eventType,
+        hosts: hostsForAvailability,
+        loggerWithEventDetails,
+        startTime,
+        endTime: recurringEndTime,
+        bypassBusyCalendarTimes,
+        silentCalendarFailures,
+        mode,
+      });
+      const recurringAggregatedAvailability = getAggregatedAvailability(
+        recurringAvailabilityData.allUsersAvailability,
+        eventType.schedulingType
+      );
+
+      availableTimeSlots = availableTimeSlots.filter((slot) => {
+        const recurringStarts = this.getRecurringOccurrenceStarts({
+          slotStart: slot.time,
+          recurringEvent,
+          recurringCount: recurringEvent.count,
+          timeZone: recurringTimeZone,
+        });
+
+        return recurringStarts.every((recurringStart) =>
+          this.isSlotWithinDateRanges({
+            slotStart: recurringStart,
+            eventLength,
+            dateRanges: recurringAggregatedAvailability,
+          })
+        );
+      });
+    }
+
     const reservedSlots = await this._getReservedSlotsAndCleanupExpired({
       bookerClientUid,
       eventTypeId: eventType.id,
@@ -1215,15 +1322,23 @@ export class AvailableSlotsService {
 
       availableTimeSlots = availableTimeSlots
         .map((slot) => {
-          if (
-            !checkForConflicts({
-              time: slot.time,
+          const slotTimes = recurringEvent?.count
+            ? this.getRecurringOccurrenceStarts({
+                slotStart: slot.time,
+                recurringEvent,
+                recurringCount: recurringEvent.count,
+                timeZone: recurringTimeZone,
+              })
+            : [slot.time];
+          const hasReservedSlotConflict = slotTimes.some((time) =>
+            checkForConflicts({
+              time,
               busy: busySlotsFromReservedSlots,
               ...availabilityCheckProps,
             })
-          ) {
-            return slot;
-          }
+          );
+
+          if (!hasReservedSlotConflict) return slot;
           return undefined;
         })
         .filter(

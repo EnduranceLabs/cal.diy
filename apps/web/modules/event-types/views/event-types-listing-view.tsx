@@ -10,6 +10,7 @@ import { useGetTheme } from "@calcom/lib/hooks/useTheme";
 import { useTypedQuery } from "@calcom/lib/hooks/useTypedQuery";
 import { HttpError } from "@calcom/lib/http-error";
 import { parseEventTypeColor } from "@calcom/lib/isEventTypeColor";
+import slugify from "@calcom/lib/slugify";
 import { localStorage } from "@calcom/lib/webstorage";
 import { MembershipRole, SchedulingType } from "@calcom/prisma/enums";
 import type { RouterOutputs } from "@calcom/trpc/react";
@@ -26,6 +27,7 @@ import {
   DropdownItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -69,6 +71,13 @@ type EventTypeGroup = EventTypeGroups[number];
 type EventType = EventTypeGroup["eventTypes"][number];
 
 const LIMIT = 10;
+
+const EVENT_TYPE_TEMPLATES = [
+  { titleKey: "event_type_template_60_minute_meeting", length: 60 },
+  { titleKey: "event_type_template_15_minute_meeting", length: 15 },
+  { titleKey: "event_type_template_45_minute_meeting", length: 45 },
+  { titleKey: "event_type_template_30_minute_meeting", length: 30 },
+] as const;
 
 interface SearchContextType {
   searchTerm: string;
@@ -910,9 +919,23 @@ const CreateFirstEventTypeView = ({ slug, searchTerm }: { slug: string; searchTe
   );
 };
 
-const CTA = ({ profileOptions }: { profileOptions: ProfileOption[] }) => {
+const CTA = ({ profileOptions }: { profileOptions: ProfileOption[] }): JSX.Element | null => {
   const { t } = useLocale();
   const { searchTerm, setSearchTerm } = useSearchContext();
+  const eventPage = profileOptions[0]?.slug ?? "";
+
+  const getCreateEventTypeHref = (template?: (typeof EVENT_TYPE_TEMPLATES)[number]): string => {
+    const params = new URLSearchParams({ dialog: "new", eventPage });
+
+    if (template) {
+      const title = t(template.titleKey);
+      params.set("title", title);
+      params.set("slug", slugify(title));
+      params.set("length", String(template.length));
+    }
+
+    return `?${params.toString()}`;
+  };
 
   if (!profileOptions.length) return null;
 
@@ -930,11 +953,33 @@ const CTA = ({ profileOptions }: { profileOptions: ProfileOption[] }) => {
         }}
         placeholder={t("search")}
       />
-      <Button
-        data-testid="new-event-type"
-        href={`?dialog=new&eventPage=${profileOptions[0]?.slug ?? ""}`}>
-        {t("new")}
-      </Button>
+      <ButtonGroup combined>
+        <Button data-testid="new-event-type" href={getCreateEventTypeHref()}>
+          {t("new")}
+        </Button>
+        <Dropdown modal={false}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              aria-label={t("choose_template")}
+              color="primary"
+              data-testid="new-event-type-template-menu"
+              type="button"
+              variant="icon"
+              StartIcon="chevron-down"
+            />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuLabel>{t("choose_template")}</DropdownMenuLabel>
+            {EVENT_TYPE_TEMPLATES.map((template) => (
+              <DropdownMenuItem key={template.length}>
+                <DropdownItem href={getCreateEventTypeHref(template)} StartIcon="clock">
+                  {t(template.titleKey)}
+                </DropdownItem>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </Dropdown>
+      </ButtonGroup>
       <CreateEventTypeDialog profileOptions={profileOptions} />
     </div>
   );

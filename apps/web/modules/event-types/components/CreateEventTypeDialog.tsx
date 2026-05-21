@@ -5,12 +5,12 @@ import { useTypedQuery } from "@calcom/lib/hooks/useTypedQuery";
 import type { EventType } from "@calcom/prisma/client";
 import type { MembershipRole } from "@calcom/prisma/enums";
 import { SchedulingType } from "@calcom/prisma/enums";
-import { trpc } from "@calcom/trpc/react";
 import { Button } from "@calcom/ui/components/button";
 import { DialogClose, DialogContent, DialogFooter } from "@calcom/ui/components/dialog";
 import { showToast } from "@calcom/ui/components/toast";
 import { isValidPhoneNumber } from "libphonenumber-js/max";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { z } from "zod";
 import { useCreateEventType } from "~/event-types/hooks/useCreateEventType";
 
@@ -63,13 +63,13 @@ const querySchema = z.object({
     .optional(),
 });
 
-export function CreateEventTypeDialog({ profileOptions }: { profileOptions: ProfileOption[] }) {
+export function CreateEventTypeDialog({ profileOptions }: { profileOptions: ProfileOption[] }): JSX.Element {
   const { t } = useLocale();
   const router = useRouter();
   const orgBranding = null;
 
   const {
-    data: { teamId, eventPage: pageSlug },
+    data: { teamId, eventPage: pageSlug, title, slug, length, description },
   } = useTypedQuery(querySchema);
 
   const teamProfile = profileOptions.find((profile) => profile.teamId === teamId);
@@ -102,6 +102,15 @@ export function CreateEventTypeDialog({ profileOptions }: { profileOptions: Prof
   };
 
   const { form, createMutation, isManagedEventType } = useCreateEventType(onSuccessMutation, onErrorMutation);
+
+  useEffect(() => {
+    form.reset({
+      title: title ?? "",
+      slug: slug ?? "",
+      length: length ?? 15,
+      description: description ?? "",
+    });
+  }, [description, form, length, slug, title]);
 
   const urlPrefix = WEBSITE_URL;
 

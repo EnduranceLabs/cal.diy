@@ -5,6 +5,7 @@ import type { UserWithLegacySelectedCalendars } from "@calcom/features/users/rep
 import { withSelectedCalendars } from "@calcom/features/users/repositories/UserRepository";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { ErrorWithCode } from "@calcom/lib/errors";
+import { parseRecurringEvent } from "@calcom/lib/isRecurringEvent";
 import logger from "@calcom/lib/logger";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { eventTypeSelect } from "@calcom/lib/server/eventTypeSelect";
@@ -1270,6 +1271,7 @@ export class EventTypeRepository implements IEventTypesRepository {
         rescheduleWithSameRoundRobinHost: true,
         periodDays: true,
         metadata: true,
+        recurringEvent: true,
         assignRRMembersUsingSegment: true,
         rrSegmentQueryValue: true,
         isRRWeightsEnabled: true,
@@ -1378,6 +1380,7 @@ export class EventTypeRepository implements IEventTypesRepository {
       hosts: hostsWithSelectedCalendars(eventType.hosts),
       users: usersWithSelectedCalendars(eventType.users),
       metadata: EventTypeMetaDataSchema.parse(eventType.metadata),
+      recurringEvent: parseRecurringEvent(eventType.recurringEvent),
       rrSegmentQueryValue: rrSegmentQueryValueSchema.parse(eventType.rrSegmentQueryValue),
     };
   }

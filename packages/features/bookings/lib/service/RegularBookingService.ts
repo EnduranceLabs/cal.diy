@@ -1076,13 +1076,13 @@ async function handler(
                   );
                 }
               }
-              // if no error, then lucky user is available for the next slots
+              // if no error, then lucky user is available for the recurring slots
               luckyUsers.push(newLuckyUser);
               luckUserFound = true;
             } catch {
               notAvailableLuckyUsers.push(newLuckyUser);
               tracingLogger.info(
-                `Round robin host ${newLuckyUser.name} not available for first two slots. Trying to find another host.`
+                `Round robin host ${newLuckyUser.name} not available for all recurring slots. Trying to find another host.`
               );
             }
           } else {

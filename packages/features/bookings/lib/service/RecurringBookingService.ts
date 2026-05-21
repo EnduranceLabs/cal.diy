@@ -28,7 +28,7 @@ export const handleNewRecurringBooking = async function (
   });
   const appsStatus: AppsStatus[] | undefined = undefined;
 
-  const numSlotsToCheckForAvailability = 1;
+  const numSlotsToCheckForAvailability = data.length;
 
   let thirdPartyRecurringEventId = null;
 
@@ -36,7 +36,7 @@ export const handleNewRecurringBooking = async function (
   const firstBooking = data[0];
   const isRoundRobin = firstBooking.schedulingType === SchedulingType.ROUND_ROBIN;
 
-  let luckyUsers;
+  let luckyUsers: number[] | undefined;
 
   const handleBookingMeta = {
     userId: input.userId,
@@ -47,6 +47,34 @@ export const handleNewRecurringBooking = async function (
     platformBookingLocation: input.platformBookingLocation,
     areCalendarEventsEnabled: input.areCalendarEventsEnabled,
   };
+
+  let preflightLuckyUsers: number[] | undefined;
+  for (let key = 0; key < data.length; key++) {
+    const booking = data[key];
+    const preflightBooking = await regularBookingService.createBooking({
+      bookingData: {
+        ...booking,
+        appsStatus,
+        allRecurringDates,
+        isFirstRecurringSlot: key === 0,
+        thirdPartyRecurringEventId,
+        numSlotsToCheckForAvailability,
+        currentRecurringIndex: key,
+        noEmail: true,
+        luckyUsers: preflightLuckyUsers,
+        _isDryRun: true,
+      },
+      bookingMeta: {
+        hostname: input.hostname || "",
+        forcedSlug: input.forcedSlug as string | undefined,
+        ...handleBookingMeta,
+      },
+    });
+
+    if (isRoundRobin && key === 0) {
+      preflightLuckyUsers = preflightBooking.luckyUsers;
+    }
+  }
 
   if (isRoundRobin) {
     const recurringEventData = {
@@ -75,7 +103,7 @@ export const handleNewRecurringBooking = async function (
     const booking = data[key];
     // Disable AppStatus in Recurring Booking Email as it requires us to iterate backwards to be able to compute the AppsStatus for all the bookings except the very first slot and then send that slot's email with statuses
     // It is also doubtful that how useful is to have the AppsStatus of all the bookings in the email.
-    // It is more important to iterate forward and check for conflicts for only first few bookings defined by 'numSlotsToCheckForAvailability'
+    // It is more important to iterate forward and check conflicts before sending the first slot's email.
     // if (key === 0) {
     //   const calcAppsStatus: { [key: string]: AppsStatus } = createdBookings
     //     .flatMap((book) => (book.appsStatus !== undefined ? book.appsStatus : []))
@@ -95,7 +123,7 @@ export const handleNewRecurringBooking = async function (
       ...booking,
       appsStatus,
       allRecurringDates,
-      isFirstRecurringSlot: key == 0,
+      isFirstRecurringSlot: key === 0,
       thirdPartyRecurringEventId,
       numSlotsToCheckForAvailability,
       currentRecurringIndex: key,

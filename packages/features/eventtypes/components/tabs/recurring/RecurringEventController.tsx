@@ -48,13 +48,17 @@ export default function RecurringEventController({
   );
   const isSeatsOffered = !!formMethods.getValues("seatsPerTimeSlot");
   const hasBookingLimitPerBooker = !!formMethods.getValues("maxActiveBookingsPerBooker");
-  /* Just yearly-0, monthly-1 and weekly-2 */
-  const recurringEventFreqOptions = Object.entries(Frequency)
-    .filter(([key, value]) => Number.isNaN(Number(key)) && Number(value) < 3)
-    .map(([key, value]) => ({
-      label: t(`${key.toString().toLowerCase()}`, { count: recurringEventState?.interval }),
-      value: value.toString(),
-    }));
+  const recurringEventFreqOptions = [
+    { label: t("daily_frequency"), value: `${Frequency.DAILY}:1`, freq: Frequency.DAILY, interval: 1 },
+    { label: t("weekly_frequency"), value: `${Frequency.WEEKLY}:1`, freq: Frequency.WEEKLY, interval: 1 },
+    { label: t("bi_weekly_frequency"), value: `${Frequency.WEEKLY}:2`, freq: Frequency.WEEKLY, interval: 2 },
+    { label: t("monthly_frequency"), value: `${Frequency.MONTHLY}:1`, freq: Frequency.MONTHLY, interval: 1 },
+  ];
+  const selectedRecurringEventFreqOption =
+    recurringEventFreqOptions.find(
+      (option) =>
+        option.freq === recurringEventState?.freq && option.interval === recurringEventState?.interval
+    ) ?? recurringEventFreqOptions[1];
 
   const recurringLocked = { disabled: false };
 
@@ -126,38 +130,24 @@ export default function RecurringEventController({
                           "text-emphasis ltr:mr-2 rtl:ml-2",
                           customClassNames?.frequencyInput?.label
                         )}>
-                        {t("repeats_every")}
+                        {t("frequency")}
                       </p>
-                      <TextField
-                        disabled={recurringLocked.disabled}
-                        type="number"
-                        min="1"
-                        max="20"
-                        className={classNames("mb-0", customClassNames?.frequencyInput?.input)}
-                        defaultValue={recurringEventState.interval}
-                        onChange={(event) => {
-                          const newVal = {
-                            ...recurringEventState,
-                            interval: parseInt(event?.target.value, 10),
-                          };
-                          formMethods.setValue("recurringEvent", newVal, { shouldDirty: true });
-                          setRecurringEventState(newVal);
-                        }}
-                      />
                       <Select
                         options={recurringEventFreqOptions}
-                        value={recurringEventFreqOptions[recurringEventState.freq]}
+                        value={selectedRecurringEventFreqOption}
                         isSearchable={false}
                         className={classNames(
-                          "ml-2 block w-18 min-w-0 rounded-md text-sm",
+                          "block w-32 min-w-0 rounded-md text-sm",
                           customClassNames?.frequencyUnitSelect?.select
                         )}
                         innerClassNames={customClassNames?.frequencyUnitSelect?.innerClassNames}
                         isDisabled={recurringLocked.disabled}
                         onChange={(event) => {
+                          const [freq, interval] = (event?.value || `${Frequency.WEEKLY}:1`).split(":");
                           const newVal = {
                             ...recurringEventState,
-                            freq: parseInt(event?.value || `${Frequency.WEEKLY}`, 10),
+                            freq: parseInt(freq, 10),
+                            interval: parseInt(interval, 10),
                           };
                           formMethods.setValue("recurringEvent", newVal, { shouldDirty: true });
                           setRecurringEventState(newVal);
@@ -174,7 +164,7 @@ export default function RecurringEventController({
                           "text-emphasis ltr:mr-2 rtl:ml-2",
                           customClassNames?.maxEventsInput?.labelText
                         )}>
-                        {t("for_a_maximum_of")}
+                        {t("number_of_repetitions")}
                       </p>
                       <TextField
                         disabled={recurringLocked.disabled}
