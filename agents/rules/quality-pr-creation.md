@@ -19,6 +19,14 @@ tags: pull-request, code-review, workflow
 - For most PRs, you only need to run linting and type checking
 - E2E tests will only run if PR has "ready-for-e2e" label
 
+## Target Repository
+
+This repo is a fork: `origin` is `EnduranceLabs/cal.diy`, `upstream` is `calcom/cal.diy`. PRs go to the **fork** (`EnduranceLabs/cal.diy`), not upstream. `gh pr create` defaults to the parent on forks, so always pass `--repo EnduranceLabs/cal.diy` explicitly:
+
+```bash
+gh pr create --repo EnduranceLabs/cal.diy --base main --head <branch> --title "..." --body "..."
+```
+
 ## Before Pushing
 
 Run checks scoped to what you changed — not the whole repo.
