@@ -422,7 +422,3 @@ html[dir="rtl"] .react-tel-input .flag-dropdown {
   left: auto !important;
   right: 0 !important;
 }
-
-nextjs-portal {
-  display: none !important;
-}
